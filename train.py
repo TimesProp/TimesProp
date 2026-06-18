@@ -87,11 +87,9 @@ def load_dataset(df):
 
     data = df.values.astype(np.float32)
     data = sanitize_and_update_parent(data)
-    scaler = GlobalMinMaxScaler()
-    data = scaler.fit_transform(data)
     data = torch.tensor(data, dtype=torch.float32)
 
-    return data, x_mark, scaler
+    return data, x_mark
 
 def crps_sample_loss(y: torch.Tensor, samples: torch.Tensor) -> torch.Tensor:
     B, F, N, D = samples.shape  # D = C+1
@@ -260,7 +258,7 @@ if __name__ == '__main__':
     
 
     args = parser.parse_args()
-    full_path = os.path.join("/workspace/data", args.path)
+    full_path = os.path.join("/workspace/dataold", args.path)
     
     method_names = {
         # "Unreconciled": None,
@@ -303,7 +301,7 @@ if __name__ == '__main__':
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         df = pd.read_csv(full_path)
-        data, x_mark, scaler = load_dataset(df)
+        data, x_mark = load_dataset(df)
 
         total_len = data.shape[0]
         train_len = int(total_len * 0.7)
@@ -316,6 +314,11 @@ if __name__ == '__main__':
         train_data = data[:train_len]
         val_data = data[train_len:train_len + val_len]
         test_data = data[train_len + val_len:]
+
+        scaler = GlobalMinMaxScaler()
+        train_data = scaler.fit_transform(train_data)
+        val_data = scaler.transform(val_data)
+        test_data = scaler.transform(test_data)
 
         train_mark = x_mark[:train_len] if x_mark is not None else None
         val_mark = x_mark[train_len:train_len + val_len] if x_mark is not None else None
@@ -339,7 +342,7 @@ if __name__ == '__main__':
         print(f"Using batch size: {batch_size}")
 
         if args.load:
-            best_model_path = '/workspace/timesnet-prob2/saved_model.pth'
+            best_model_path = '/workspace/saved_model.pth'
             model.load_state_dict(torch.load(best_model_path))
         else:
             model = train_model(model, train_loader, val_loader, optimizer, criterion, device, 
@@ -397,24 +400,34 @@ if __name__ == '__main__':
         print(f"Completed repeat {repeat + 1}/{args.repeat}")
 
 
-    print("======== FINAL RESULTS ========")
-    print(args.path)
-    print("\033[34m", end='')
-    for method, res in results.items():
-        smape_arr = np.array(res["smape"])
-        r2_arr = np.array(res["r2"])
-        eacc_arr = np.array(res["eacc"])
+    with open("/workspace/res.txt", "a", encoding="utf-8") as f:
+        print("======== FINAL RESULTS ========")
+        print(args.path)
+        print(args.path, file=f)
+        print("\033[34m", end='')
+        for method, res in results.items():
+            smape_arr = np.array(res["smape"])
+            r2_arr = np.array(res["r2"])
+            eacc_arr = np.array(res["eacc"])
+        
+            suffix = f"Sep77-{method}"
+            print(f"{suffix}\t{smape_arr.mean():.3f}±{smape_arr.std():.3f}\t{r2_arr.mean():.3f}±{r2_arr.std():.3f}\t{eacc_arr.mean():.3f}±{eacc_arr.std():.3f}")
+            print(f"{suffix}\t{smape_arr.mean():.3f}±{smape_arr.std():.3f}\t{r2_arr.mean():.3f}±{r2_arr.std():.3f}\t{eacc_arr.mean():.3f}±{eacc_arr.std():.3f}", file=f)
+        # print('')
+        for method, res in results.items():
+            crps_arr = np.array(res["crps"])
+            for i in range(0, crps_arr.shape[1]):
+                print(f"{crps_arr[:, i].mean():.3f}±{crps_arr[:, i].std():.3f}", end='\t')
+                print(f"{crps_arr[:, i].mean():.3f}±{crps_arr[:, i].std():.3f}", end='\t', file=f)
     
-        suffix = f"Sep77-{method}"
-        print(f"{suffix}\t{smape_arr.mean():.3f}±{smape_arr.std():.3f}\t{r2_arr.mean():.3f}±{r2_arr.std():.3f}\t{eacc_arr.mean():.3f}±{eacc_arr.std():.3f}")
-    # print('')
-    for method, res in results.items():
-        crps_arr = np.array(res["crps"])
-        for i in range(0, crps_arr.shape[1]):
-            print(f"{crps_arr[:, i].mean():.3f}±{crps_arr[:, i].std():.3f}", end='\t')
-
-        for crps in crps_arr:
-            print(f"{crps.mean():.3f}±{crps.std():.3f}", end='\t')
+            # print('ok')
+            # print('ok', file=f)
+            # for crps in crps_arr:
+            #     print(f"{crps.mean():.3f}±{crps.std():.3f}", end='\t')
+            #     print(f"{crps.mean():.3f}±{crps.std():.3f}", end='\t', file=f)
+            # print('')
         print('')
-    print('')
-    print("\033[0m", end='')
+        print('')
+        print('', file=f)
+        print('', file=f)
+        print("\033[0m", end='')
